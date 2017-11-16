@@ -48,7 +48,6 @@ class SearchPage(PageObject):
     table_view = Link(css="a[value='tableView']")
     in_results = Checkbox(
         xpath="//label[text()='в найденном']/input[@type='checkbox']")
-    criminal = Link(partial_link_text="Уголовное дело")
     show = Link(link_text="Показать")
 
     def wait_for_preloader(self, timeout=30):
@@ -128,9 +127,13 @@ def fetch(name, insurance=True):
             page.search_btn.click()
         else:
             try:
-                page.criminal.click()
+                page.webdriver.execute_script(
+                    """
+                    $("ul#facetBoxcomment_cat a:contains('Уголовное дело')")[0].click()
+                    """)
                 page.show.click()
-            except TimeoutException:
+            except TimeoutException as e:
+                logging.warn(e)
                 return []
 
         page.wait_for_results()
