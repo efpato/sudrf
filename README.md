@@ -22,6 +22,6 @@
 ### Использование
 
 ```bash
-python fetch "Петров Петр Иванович"
+python fetch sample.xlsx
 ```
-На выходе получаем Excel-файл "Петров Петр Иванович.xlsx"
+На выходе получаем Excel-файл sample.out.xlsx

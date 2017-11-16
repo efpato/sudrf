@@ -1,15 +1,28 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import logging
 import os
+import signal
 import sys
 
 from page_object import PageObject, PageElement
 from page_object.elements import Button, Checkbox, Link, Textbox
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
 
+import xlrd
 import xlsxwriter
+
+
+logging.basicConfig(format=("%(asctime)s  %(levelname)-8s "
+                            "%(module)-15s %(message)s"),
+                    level=logging.DEBUG)
+logging.getLogger(
+    "selenium.webdriver.remote.remote_connection").setLevel(logging.WARNING)
+
+stopped = False
 
 
 class JQuerySelect(PageElement):
@@ -69,7 +82,29 @@ class SearchPage(PageObject):
         return res
 
 
+def load(filename):
+    logging.debug('Loading data from "%s"', filename)
+
+    workbook = xlrd.open_workbook(filename)
+    sheet = workbook.sheet_by_index(0)
+
+    data = []
+    for row in range(sheet.nrows):
+        data.append(sheet.cell_value(row, 0))
+
+    logging.debug('Data has been loaded (%d rows)', len(data))
+
+    return data
+
+
 def fetch(name, insurance=True):
+    if stopped:
+        return []
+
+    logging.debug('Fetching for "%s" insurance=%s', name, insurance)
+
+    driver = None
+
     try:
         driver = webdriver.Firefox()
         driver.maximize_window()
@@ -83,7 +118,7 @@ def fetch(name, insurance=True):
 
         page.wait_for_results()
         if "Ничего не найдено" in page.result_list.text:
-            return
+            return []
 
         page.table_view.click()
 
@@ -92,65 +127,98 @@ def fetch(name, insurance=True):
             page.search_tb = "страховой"
             page.search_btn.click()
         else:
-            page.criminal.click()
-            page.show.click()
+            try:
+                page.criminal.click()
+                page.show.click()
+            except TimeoutException:
+                return []
 
         page.wait_for_results()
         if "Ничего не найдено" in page.result_list.text:
-            return
+            return []
 
         return page.results
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        logging.exception(e)
     finally:
-        driver.quit()
+        if driver is not None:
+            driver.quit()
+
+    return []
 
 
-def report(name, insurance, criminal):
-    workbook = xlsxwriter.Workbook("%s.xlsx" % name)
+def report(filename, results):
+    logging.debug('Creating report ...')
+    out = "%s.out.xlsx" % os.path.basename(filename).split('.')[0]
 
+    workbook = xlsxwriter.Workbook(out)
     sheet0 = workbook.add_worksheet("Страховой")
-    sheet0.write(0, 0, "№")
-    sheet0.write(0, 1, "Наименование")
-    sheet0.write(0, 2, "Аннотация")
-    sheet0.write(0, 3, "Вид документа")
-    sheet0.write(0, 4, "Дата поступления")
-    sheet0.write(0, 5, "Дата решения")
-    sheet0.write(0, 6, "Субъект РФ")
-    sheet0.write(0, 7, "Наименование суда")
-    sheet0.write(0, 8, "Результат")
-    for row, data in enumerate(insurance, 1):
-        for col, value in enumerate(data):
-            sheet0.write(row, col, value)
-
     sheet1 = workbook.add_worksheet("Уголовный")
-    sheet1.write(0, 0, "№")
-    sheet1.write(0, 1, "Наименование")
-    sheet1.write(0, 2, "Аннотация")
-    sheet1.write(0, 3, "Вид документа")
-    sheet1.write(0, 4, "Дата поступления")
-    sheet1.write(0, 5, "Дата решения")
-    sheet1.write(0, 6, "Субъект РФ")
-    sheet1.write(0, 7, "Наименование суда")
-    sheet1.write(0, 8, "Статья УК РФ")
-    sheet1.write(0, 9, "Результат")
-    for row, data in enumerate(criminal, 1):
-        for col, value in enumerate(data):
-            sheet1.write(row, col, value)
+
+    sheet0.write(0, 0, "ФИО")
+    sheet0.write(0, 1, "№")
+    sheet0.write(0, 2, "Наименование")
+    sheet0.write(0, 3, "Аннотация")
+    sheet0.write(0, 4, "Вид документа")
+    sheet0.write(0, 5, "Дата поступления")
+    sheet0.write(0, 6, "Дата решения")
+    sheet0.write(0, 7, "Субъект РФ")
+    sheet0.write(0, 8, "Наименование суда")
+    sheet0.write(0, 9, "Результат")
+
+    sheet1.write(0, 0, "ФИО")
+    sheet1.write(0, 1, "№")
+    sheet1.write(0, 2, "Наименование")
+    sheet1.write(0, 3, "Аннотация")
+    sheet1.write(0, 4, "Вид документа")
+    sheet1.write(0, 5, "Дата поступления")
+    sheet1.write(0, 6, "Дата решения")
+    sheet1.write(0, 7, "Субъект РФ")
+    sheet1.write(0, 8, "Наименование суда")
+    sheet1.write(0, 9, "Статья УК РФ")
+    sheet1.write(0, 10, "Результат")
+
+    for name, insurance, criminal in results:
+        for row, data in enumerate(insurance, 1):
+            sheet0.write(row, 0, name)
+            for col, value in enumerate(data, 1):
+                sheet0.write(row, col, value)
+        for row, data in enumerate(criminal, 1):
+            sheet1.write(row, 0, name)
+            for col, value in enumerate(data, 1):
+                sheet1.write(row, col, value)
 
     workbook.close()
+    logging.debug('Report has been created: "%s"', out)
 
 
 def usage():
-    print('Usage: %s "Фамилия Имя Отчество"' %
+    print('Usage: %s input-file' %
           os.path.basename(__file__), file=sys.stderr)
     sys.exit(1)
 
 
 def main():
+    def sigint_handler(signum, frame):
+        global stopped
+        stopped = True
+
+    signal.signal(signal.SIGINT, sigint_handler)
+
     if len(sys.argv) < 2:
         usage()
 
-    name = sys.argv[1]
-    report(name, fetch(name), fetch(name, False))
+    filename = sys.argv[1]
+
+    results = []
+    for name in load(filename):
+        if stopped:
+            break
+        results.append((name, fetch(name), fetch(name, False)))
+
+    report(filename, results)
 
 
 if __name__ == '__main__':
