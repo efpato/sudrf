@@ -183,15 +183,22 @@ def report(filename, results):
     sheet1.write(0, 9, "Статья УК РФ")
     sheet1.write(0, 10, "Результат")
 
-    for name, insurance, criminal in results:
-        for row, data in enumerate(insurance, 1):
-            sheet0.write(row, 0, name)
+    row0 = 1
+    row1 = 1
+    while results:
+        name, insurance, criminal = results.pop()
+
+        for data in insurance:
+            sheet0.write(row0, 0, name)
             for col, value in enumerate(data, 1):
-                sheet0.write(row, col, value)
-        for row, data in enumerate(criminal, 1):
-            sheet1.write(row, 0, name)
+                sheet0.write(row0, col, value)
+            row0 += 1
+
+        for data in criminal:
+            sheet1.write(row1, 0, name)
             for col, value in enumerate(data, 1):
-                sheet1.write(row, col, value)
+                sheet1.write(row1, col, value)
+            row1 += 1
 
     workbook.close()
     logging.debug('Report has been created: "%s"', out)
