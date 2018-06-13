@@ -7,7 +7,7 @@ import signal
 import sys
 
 from page_object import PageObject, PageElement
-from page_object.elements import Button, Checkbox, Link, Textbox
+from page_object.ui import Button, Link, Textbox
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.wait import WebDriverWait
@@ -36,18 +36,20 @@ class JQuerySelect(PageElement):
 
         self.__get__(instance, instance.__class__)
         instance.webdriver.execute_script(
-            """$("%s").val("%s").change();""" %
+            """jQuery("%s").val("%s").change();""" %
             (self._locator[1], value))
 
 
 class SearchPage(PageObject):
-    search_tb = Textbox(id="sudrfSearchInput")
+    search_tb = Textbox(id="portalSearchInput")
+    search_mode = Button(id="searchModeSelectorBtn")
     search_btn = Button(id="textSearchButton")
-    request_type = JQuerySelect(css="#requestTypeSelector")
+    request_type = JQuerySelect(css="select#simpleRequestTypeSelector")
     result_list = PageElement(id="resultsList")
     table_view = Link(css="a[value='tableView']")
-    in_results = Checkbox(
-        xpath="//label[text()='в найденном']/input[@type='checkbox']")
+    in_results = Button(css="span#nestedQueryCheckboxOuter > span")
+    type_of_proceedings = Link(link_text="Вид судопроизводства")
+    criminal_case = Link(partial_link_text="Уголовное дело")
     show = Link(link_text="Показать")
 
     def wait_for_preloader(self, timeout=30):
@@ -58,6 +60,7 @@ class SearchPage(PageObject):
         return WebDriverWait(self.webdriver, timeout=timeout).until(
             lambda d: d.find_element_by_id("resultContainer").is_displayed())
 
+    @property
     def pages(self):
         return self.webdriver.find_elements_by_css_selector(
             "table#topPager td.pageNumTD")
@@ -73,8 +76,8 @@ class SearchPage(PageObject):
             return ret
 
         res = get()
-        for i in range(len(self.pages()))[1:]:
-            self.pages()[i].click()
+        for page in self.pages[1:]:
+            page.click()
             self.wait_for_results()
             res.extend(get())
 
@@ -112,6 +115,7 @@ def fetch(name, insurance=True):
         page = SearchPage(driver)
         page.wait_for_preloader()
         page.search_tb = name
+        page.search_mode.click()
         page.request_type = "EXACT"
         page.search_btn.click()
 
@@ -122,18 +126,16 @@ def fetch(name, insurance=True):
         page.table_view.click()
 
         if insurance:
-            page.in_results = True
+            page.in_results.click()
             page.search_tb = "страховой"
             page.search_btn.click()
         else:
             try:
-                page.webdriver.execute_script(
-                    """
-                    $("ul#facetBoxcomment_cat a:contains('Уголовное дело')")[0].click()
-                    """)
+                page.type_of_proceedings.click()
+                page.criminal_case.click()
                 page.show.click()
             except TimeoutException as e:
-                logging.warn(e)
+                logging.warning(e)
                 return []
 
         page.wait_for_results()
@@ -162,26 +164,25 @@ def report(filename, results):
 
     sheet0.write(0, 0, "ФИО")
     sheet0.write(0, 1, "№")
-    sheet0.write(0, 2, "Наименование")
-    sheet0.write(0, 3, "Аннотация")
-    sheet0.write(0, 4, "Вид документа")
-    sheet0.write(0, 5, "Дата поступления")
-    sheet0.write(0, 6, "Дата решения")
-    sheet0.write(0, 7, "Субъект РФ")
-    sheet0.write(0, 8, "Наименование суда")
-    sheet0.write(0, 9, "Результат")
+    sheet0.write(0, 2, "Тип документа")
+    sheet0.write(0, 3, "Дата поступления")
+    sheet0.write(0, 4, "Дата решения")
+    sheet0.write(0, 5, "Субъект РФ")
+    sheet0.write(0, 6, "Наименование суда")
+    sheet0.write(0, 7, "Статья или категория")
+    sheet0.write(0, 8, "Результат")
+    sheet0.write(0, 9, "Дата поступления")
 
     sheet1.write(0, 0, "ФИО")
     sheet1.write(0, 1, "№")
-    sheet1.write(0, 2, "Наименование")
-    sheet1.write(0, 3, "Аннотация")
-    sheet1.write(0, 4, "Вид документа")
-    sheet1.write(0, 5, "Дата поступления")
-    sheet1.write(0, 6, "Дата решения")
-    sheet1.write(0, 7, "Субъект РФ")
-    sheet1.write(0, 8, "Наименование суда")
-    sheet1.write(0, 9, "Статья УК РФ")
-    sheet1.write(0, 10, "Результат")
+    sheet1.write(0, 2, "Тип документа")
+    sheet1.write(0, 3, "Дата поступления")
+    sheet1.write(0, 4, "Дата решения")
+    sheet1.write(0, 5, "Субъект РФ")
+    sheet1.write(0, 6, "Наименование суда")
+    sheet1.write(0, 7, "Статья или категория")
+    sheet1.write(0, 8, "Результат")
+    sheet1.write(0, 9, "Дата поступления")
 
     row0 = 1
     row1 = 1
